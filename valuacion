@@ -1,0 +1,180 @@
+
+%%R
+btasadesc="tasa_TIIE_SW_OP.txt"
+btasacupvar="tasa_dirs_sw_op.txt"
+direc="C:"
+
+
+#FUNCIÓN DE INTERPOLACIÓN ALAMBRADA
+
+talamb=function(nodos,curva,plazos) #función de interpolación de tasas por el método alamabrada
+{
+  n=max(ncol(plazos),1)
+  m=max(ncol(nodos),1)
+  TC=matrix(0,1,n)
+  TL=matrix(0,1,n)
+  TF=matrix(0,1,n)
+  for (j in 1:n)
+  {
+    i=1
+    repeat
+    {
+      if(nodos[i]<= plazos[j] && plazos[j] <=nodos[i+1])
+      {
+        TC[j]=curva[i]
+        TL[j]=curva[i+1]
+        TF[j]=((((1+TL[j]*nodos[i+1]/360)/(1+TC[j]*nodos[i]/360))^((plazos[j]-nodos[i])/(nodos[i+1]-nodos[i]))*(1+TC[j]*nodos[i]/360))-1)*360/plazos[j]
+        break
+      }
+      else if (plazos[j]<nodos[1])
+      {
+        TC[j]=curva[1]
+        TL[j]=curva[1]
+        TF[j]=curva[1]
+        break
+      }
+      else if (plazos[j]>nodos[m])
+      {
+        TC[j]=curva[m]
+        TL[j]=curva[m]
+        TF[j]=curva[m]
+        break
+      }
+			else
+      {i=i+1}
+    }
+  }
+  as.matrix(t(as.numeric(rbind(TF))))
+}
+
+
+#funciones necesarias
+diagv=function(x)			#función para diagonalizar un vector
+{
+  n01=nrow(as.matrix(x))
+  m01=ncol(as.matrix(x))
+  dimmax=max(n01,m01)
+  res=matrix(0,dimmax,dimmax)
+  for (i in 1:dimmax)
+  {
+    res[i,i]=x[i]
+  }
+  res
+}
+
+#interpolación
+talamb=function(nodos,curva,plazos) #función de interpolación de tasas por el método alamabrada
+{
+  n=max(ncol(plazos),1)
+  m=max(ncol(nodos),1)
+  TC=matrix(0,1,n)
+  TL=matrix(0,1,n)
+  TF=matrix(0,1,n)
+  for (j in 1:n)
+  {
+    i=1
+    repeat
+    {
+      if(nodos[i]<= plazos[j] && plazos[j] <=nodos[i+1])
+      {
+        TC[j]=curva[i]
+				     TL[j]=curva[i+1]
+        TF[j]=((((1+TL[j]*nodos[i+1]/360)/(1+TC[j]*nodos[i]/360))^((plazos[j]-nodos[i])/(nodos[i+1]-nodos[i]))*(1+TC[j]*nodos[i]/360))-1)*360/plazos[j]
+        break
+      }
+      else if (plazos[j]<nodos[1])
+      {
+        TC[j]=curva[1]
+        TL[j]=curva[1]
+        TF[j]=curva[1]
+        break
+      }
+      else if (plazos[j]>nodos[m])
+      {
+        TC[j]=curva[m]
+        TL[j]=curva[m]
+        TF[j]=curva[m]
+        break
+      }
+      else
+      {i=i+1}
+    }
+  }
+  as.matrix(t(as.numeric(rbind(TF))))
+}
+
+
+
+%%R
+btasadesc="RiesgosFinancieros/2020-2/Insumos/tasa_TIIE_SW_OP.txt"
+btasacupvar="RiesgosFinancieros/2020-2/Insumos/tasa_DIRS_SW_OP.txt"
+tasafija=cbind(0.052,0.049) #se establece la tasa fija a pagar para cada swap
+plazos=cbind(588,270) #se establece el número de días que vivirá el swap
+plazocupon=cbind(28,28) #se establece el número de días que se pagará cada cupón
+contratos=cbind(1600,1200) #se establece el número de contratos_sw de cada swap
+nominal=cbind(1,1) #se establece el nominal_sw de cada swap
+por=cbind(0,1) #se establece 0 si se paga tasa fija y 1 si se paga tasa variable
+itpl = 1 # 1 es interpolacion alambrada y 0 lineal
+
+#CARGA DE DATOS PARA SWAP
+  data1<-read.table(btasadesc)
+  n1<-nrow(data1)
+  m1_orig=ncol(data1)
+  X1_orig=data.frame(data1[2:n1,2:m1_orig])
+  nodos1=data.frame(data1[1,2:m1_orig])
+  
+  data2<-read.table(btasacupvar)
+  n2<-nrow(data2)
+  m2_orig=ncol(data2)
+  X2_orig=data.frame(data2[2:n1,2:m2_orig])
+  nodos2=data.frame(data2[1,2:m2_orig])
+  
+	#interpolando
+	
+	curvavp=as.matrix(X1_orig/100)
+	curvatc=X2_orig/100
+	n1=nrow(curvavp)
+	n2=nrow(curvatc)
+	n=max(n1,n2)
+	
+	m=max(ncol(plazos),1)
+	N= matrix(0,1,m)
+	for(j in (1:m)){
+	N[j]=as.integer(plazos[j]/plazocupon[j]+1
+	}
+	
+	VTplazos = matrix(0,1,sum(N))
+	contratosT=matrix(0,1,sum(N))
+	nominalT=matrix(0,1,sum(N))
+	porT=matrix(0,1,sum(N))
+	plazocuponT=matrix(0,1,sum(N))
+	tasafijaT=matrix(0,1,sum(N))
+	VTplazosc=matrix(0,1,sum(N))
+	
+	plazini=plazos - plazocupon*(N-1)
+	
+	for (j in (1:m)){
+	if (j==1){
+	VTplazos[,1:sum(N[1:j])]=seq(plazini[j],plazos[j], by=plazocupon[j])
+	VTplazosc[,1:sum(N[1:j])]=c(0,VTplazos[,1:(sum(N[1:j])-1)])
+	contratosT[,1:sum(N[1:j])]=seq(contratos[j],contratos[j])
+	nominalT[,1:sum(N[1:j])]=seq(nominal[j],nominal[j])
+	porT[,1:sum(N[1:j])]=seq(por[j],por[j])
+	plazocuponT[,1:sum(N[1:j])]=seq(plazocupon[j],plazocupon[j])
+	tasafijaT[,1:sum[N[1:j])]=seq(tasafija[j],tasafija[j])
+	}
+	else{
+	VTplazos[,(sum(N[1:j-1])+1):sum(N[1:j])]=seq(plazini[j],plazos[j], by=plazocupon[j])
+	VTplazosc[,(sum(N[1:j-1])+1):sum(N[1:j])]=c(0,VTplazos[,(sum(N[1:j-1])+1):(sum(N[1:j])-1)])
+	contratosT[,(sum(N[1:j-1])+1):sum(N[1:j])]=seq(contratos[j],contratos[j])
+	nominalT[,(sum(N[1:j-1])+1):sum(N[1:j])]=seq(nominal[j],nominal[j])
+	porT[,(sum(N[1:j-1])+1):sum(N[1:j])]=seq(por[j],por[j])
+	plazocuponT[,(sum(N[1:j-1])+1):sum(N[1:j])]=seq(plazocupon[j],plazocupon[j])
+	tasafijaT[,(sum(N[1:j-1])+1):sum[N[1:j])]=seq(tasafija[j],tasafija[j])
+	}
+	}
+	
+	
+	
+	
+	

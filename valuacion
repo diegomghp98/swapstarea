@@ -1,10 +1,17 @@
 
 %%R
+#require(quantmod)
+#require(data.table)
+install.packages("data.table")
+library(data.table)
+#require("PerformanceAnalytics")
+library(dplyr)
+%%R
 btasadesc="tasa_TIIE_SW_OP.txt"
 btasacupvar="tasa_dirs_sw_op.txt"
-direc="C:"
+direc="2020-1/Insumos"
 
-
+%%R
 #FUNCIÓN DE INTERPOLACIÓN ALAMBRADA
 
 talamb=function(nodos,curva,plazos) #función de interpolación de tasas por el método alamabrada
@@ -47,7 +54,7 @@ talamb=function(nodos,curva,plazos) #función de interpolación de tasas por el 
   as.matrix(t(as.numeric(rbind(TF))))
 }
 
-
+%%R
 #funciones necesarias
 diagv=function(x)			#función para diagonalizar un vector
 {
@@ -174,7 +181,169 @@ itpl = 1 # 1 es interpolacion alambrada y 0 lineal
 	}
 	}
 	
-	
-	
-	
-	
+Xvp=matrix(0,n,ncol(VTplazos))
+Xtc=matrix(0,n,ncol(VTplazos))
+Xtcc=matrix(0,n,ncol(VTplazos))
+XtfwdT=matrix(0,n,ncol(VTplazos))
+
+for (i in (1:n))
+{
+  Xvp[i,]=if(itpl==0){approx(nodosvp,curvavp[i,],VTplazos,rule=2)$y}else{talamb(nodosvp,curvavp[i,],VTplazos)}
+  Xtc[i,]=if(itpl==0){approx(nodostc,curvatc[i,],VTplazos,rule=2)$y}else{talamb(nodostc,curvatc[i,],VTplazos)}
+  Xtcc[i,]=if(itpl==0){approx(nodostc,curvatc[i,],VTplazosc, rule=2)$y}else{talamb(nodostc,curvatc[i,],VTplazosc)}
+  
+  XtfwdT[i,]=((1+Xtc[i,]*VTplazos/360)/(1+Xtcc[i,]*VTplazosc/360)-1)*360/plazocuponT 
+  for (j in (1:ncol(VTplazos)))
+  {
+    if (VTplazos[j]<= plazocuponT[j])
+    {
+      XtfwdT[i,j]=Xtc[i,j]
+    }
+    else
+    {
+      j=sum(N[1:j])
+    }
+  }
+}
+
+X=cbind(XtfwdT,Xvp)
+
+swap=function(por_swT, contratos_swT, nominal_swT, XtfwdT, tasafija_swT, plazocupon_swT, VTplazos_sw, Xvp, N)
+{
+  V0=matrix(0,1,ncol(N))
+  V0f=(((contratos_swT*(XtfwdT-tasafija_swT)*(plazocupon_swT/360)))/(1+Xvp*VTplazos_sw/360))*nominal_swT*(-1)^por_swT
+  for (j in (1:ncol(N)))
+  {
+    if(j==1)
+    {
+      V0[j]=sum(V0f[j:N[j]])
+    }
+    else
+    {
+      V0[j]=sum(V0f[(sum(N[1:j-1])+1):(sum(N[1:j]))])
+    }
+  }
+  V0
+}
+
+V0=swap(porT, contratosT, nominalT, XtfwdT[1,], tasafijaT, plazocuponT, VTplazos, Xvp[1,], N)
+
+
+#
+#DIMENSION DE TODOS LOS INSTRUMENTOS
+n_if=matrix(0,1,1)
+n_if[1]=ncol(X) #swaps
+
+#valor del portafolios
+
+V0_port=V0
+V0T_port=sum(V0_port)
+
+
+
+#INTEGRACIÓN DE TODOS LOS FACTORES DE RIESGO EN UNA MATRIZ
+X_port=X #Factores de riesgo del portafolios de 8(9) instrumentos financieros
+
+
+#Cálculo de variaciones Delta_X DEL PORTAFOLIOS
+DeltaX_port=as.matrix(log(X_port[1:(n-1)]/X_port[2:(n)]))
+DeltaX_port[is.nan(DeltaX_port)] <- 0 #quitamos NaN
+DeltaX_port[is.na(DeltaX_port)] <- 0 #quitamos Na
+DeltaX_port[is.infinite(DeltaX_port)] <- 0 #quitamos Na
+
+
+Ns=nrow(DeltaX_port) #Definimos número de escenarios históricos
+#alpha=0.98 #Nivel de Confianza para las medidas de riesgo
+
+DeltaX_s=DeltaX_port
+#print(head(DeltaX_s))
+print(n_if)
+print(Ns)
+vw=matrix(0,Ns,1)
+vw[1:Ns]=seq(1/Ns,1/Ns)
+
+print(sum(vw))
+
+#Cálculo de matriz de pérdidas y ganancias SWAP
+
+#riesgo del swap
+m=ncol(N)    #PASO CLAVE
+X_s_sw=matrix(0,Ns,n_if[1]) #Factores de riesgo simulados con base en DeltaX_s x0*(1+Delta_Xs)   #PASO CLAVE
+V_sw=matrix(0,Ns,m)
+Vfr1_sw=matrix(0,Ns,m)
+Vfr2_sw=matrix(0,Ns,m)
+PG_sw=matrix(0,Ns,m) #Pèrdidas y ganancias
+PGfr1_sw=matrix(0,Ns,m)
+PGfr2_sw=matrix(0,Ns,m)
+PGT_sw=matrix(0,Ns,1)
+PGfr1T_sw=matrix(0,Ns,1)
+PGfr2T_sw=matrix(0,Ns,1)
+
+DeltaX_s_sw=DeltaX_s[,1:n_if[1]]    #PASO CLAVE
+x0_sw=as.numeric(c(XtfwdT[1,],Xvp[1,]))   #PASO CLAVE
+
+for (i in 1:Ns)
+{
+  X_s_sw[i,]=x0_sw*exp(DeltaX_s[i,])
+  #PASO CLAVE
+  V_sw[i,]=swap(porT, contratosT, nominalT, X_s_sw[i,1:(n_if[1]/2)], tasafijaT, plazocuponT, VTplazos, X_s_sw[i,(n_if[1]/2+1):(n_if[1])],N)
+  #PASO CLAVE
+  Vfr1_sw[i,]=swap(porT, contratosT, nominalT,X_s_sw[i,1:(n_if[1]/2)], tasafijaT, plazocuponT, VTplazos, Xvp[1,],N)
+  #PASO CLAVE
+  Vfr2_sw[i,]=swap(porT, contratosT, nominalT,  XtfwdT[1,], tasafijaT, plazocuponT, VTplazos, X_s_sw[i,(n_if[1]/2+1):(n_if[1])],N)	
+  #PASO CLAVE
+  PG_sw[i,]=V_sw[i,]-V0
+  PGfr1_sw[i,]=Vfr1_sw[i,]-V0
+  PGfr2_sw[i,]=Vfr2_sw[i,]-V0
+  PGT_sw[i,]=sum(PG_sw[i,])
+  PGfr1T_sw[i,]=sum(PGfr1_sw[i,])
+  PGfr2T_sw[i,]=sum(PGfr2_sw[i,])
+}
+
+
+
+PG_sw[1:5,]
+PGfr1_sw[1:5,]
+PGfr2_sw[1:5,]
+PGT_sw[1:5,]
+
+
+#VaR por posición
+VaRCont_sw=matrix(0,1,m)
+VaRfr1_sw=matrix(0,1,m)
+VaRfr2_sw=matrix(0,1,m)
+CVaRCont_sw=matrix(0,1,m)
+CVaRfr1_sw=matrix(0,1,m)
+CVaRfr2_sw=matrix(0,1,m)
+for (i in (1:m))
+{
+  VaRCont_sw[i]=quantile(PG_sw[,i],1-alpha,Ns)
+  VaRfr1_sw[i]=quantile(PGfr1_sw[,i],1-alpha,Ns)
+  VaRfr2_sw[i]=quantile(PGfr2_sw[,i],1-alpha,Ns)
+  CVaRfr1_sw[i]= mean(merge(which(PGfr1_sw[,i]<VaRfr1_sw[i]),cbind(seq(1,Ns),PGfr1_sw[,i]), by.x=1,by.y=1)[,2])
+  CVaRfr2_sw[i]= mean(merge(which(PGfr2_sw[,i]<VaRfr2_sw[i]),cbind(seq(1,Ns),PGfr2_sw[,i]), by.x=1,by.y=1)[,2])
+  CVaRCont_sw[i]= mean(merge(which(PG_sw[,i]<VaRCont_sw[i]),cbind(seq(1,Ns),PG_sw[,i]), by.x=1,by.y=1)[,2])
+}
+
+
+VaRCont_sw
+VaRfr1_sw
+VaRfr2_sw
+CVaRCont_sw
+CVaRfr1_sw
+CVaRfr2_sw
+
+#VaR Total
+
+VaRTotal_sw=quantile(PGT_sw,1-alpha,Ns)
+CVaRTotal_sw= mean(merge(which(PGT_sw<VaRTotal_sw),cbind(seq(1,Ns),PGT_sw), by.x=1,by.y=1)[,2])
+VaRTotalfr1_sw=quantile(PGfr1T_sw,1-alpha,Ns)
+CVaRTotalfr1_sw= mean(PGfr1T_sw[which(PGfr1T_sw<VaRTotalfr1_sw),])
+VaRTotalfr2_sw=quantile(PGfr2T_sw,1-alpha,Ns)
+CVaRTotalfr2_sw= mean(PGfr2T_sw[which(PGfr2T_sw<VaRTotalfr2_sw),])
+
+
+cbind(VaRTotal_sw,sum(V0), VaRCont_sw, V0)
+cbind(CVaRTotal_sw,sum(V0), CVaRCont_sw, V0)
+cbind(VaRTotal_sw,VaRTotalfr1_sw,VaRTotalfr2_sw)
+cbind(CVaRTotal_sw,CVaRTotalfr1_sw,CVaRTotalfr2_sw)
